@@ -15,11 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Record exact candidate presence
+      - name: Record OIDC candidate presence
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
-          TITLE: candidate|teamleaderleo/scrapbook|main|84b7ddb0dff2d916d711169a8fccf6262af668cf
+          TITLE: candidate|teamleaderleo/scrapbook|main|f410f4a721f57c0af735ca60637d8927e8f99c8f
         run: |
           set -euo pipefail
           row="$(gh api "/repos/$REPOSITORY/actions/workflows/candidate.yml/runs?event=repository_dispatch&per_page=100" \
