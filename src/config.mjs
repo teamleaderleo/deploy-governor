@@ -11,9 +11,11 @@ export async function loadConfig(path) {
     hardCeiling: 98,
     windowHours: 24,
     githubOwners: [],
+    managedRepositories: [],
     projects: [],
     ...raw,
     githubOwners: (raw.githubOwners ?? []).map((owner) => owner.toLowerCase()),
+    managedRepositories: (raw.managedRepositories ?? []).map((repo) => repo.toLowerCase()),
     projects: (raw.projects ?? []).map((project) => ({ branch: "main", ...project })),
   };
 }
@@ -34,10 +36,18 @@ export function validateConfig(config) {
   if (config.githubOwners !== undefined && !Array.isArray(config.githubOwners)) {
     throw new Error("githubOwners must be an array when provided.");
   }
+  if (config.managedRepositories !== undefined && !Array.isArray(config.managedRepositories)) {
+    throw new Error("managedRepositories must be an array when provided.");
+  }
 
   for (const owner of config.githubOwners ?? []) {
     if (typeof owner !== "string" || !ownerPattern.test(owner)) {
       throw new Error(`Invalid GitHub owner: ${String(owner)}`);
+    }
+  }
+  for (const repo of config.managedRepositories ?? []) {
+    if (typeof repo !== "string" || !repositoryPattern.test(repo)) {
+      throw new Error(`Invalid managed repository: ${String(repo)}`);
     }
   }
 
