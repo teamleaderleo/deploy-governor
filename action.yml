@@ -1,0 +1,81 @@
+name: Deploy Governor
+description: Deploy a Vercel production commit immediately below the rolling threshold, otherwise leave it for the global batch scheduler.
+inputs:
+  vercel-token:
+    description: Vercel API token with access to the target team.
+    required: true
+  team-slug:
+    description: Vercel team slug.
+    required: true
+  vercel-project:
+    description: Vercel project name.
+    required: true
+  vercel-project-id:
+    description: Vercel project ID (prj_...).
+    required: true
+  repo:
+    description: GitHub repository in owner/name form. Defaults to the calling repository.
+    required: false
+    default: ''
+  branch:
+    description: Git branch deployed to production.
+    required: false
+    default: main
+  sha:
+    description: Exact Git commit to deploy. Defaults to the calling workflow SHA.
+    required: false
+    default: ''
+  threshold:
+    description: Number of deployments in the rolling window before batching starts.
+    required: false
+    default: '50'
+  window-hours:
+    description: Rolling window length in hours.
+    required: false
+    default: '24'
+  dry-run:
+    description: Evaluate without creating a deployment.
+    required: false
+    default: 'false'
+outputs:
+  action:
+    description: deploy-now, batch-wait, or already-current.
+    value: ${{ steps.govern.outputs.action }}
+  deployment-id:
+    description: Created Vercel deployment ID, when one was created.
+    value: ${{ steps.govern.outputs.deployment-id }}
+  deployment-count:
+    description: Observed deployment count, capped at the threshold.
+    value: ${{ steps.govern.outputs.deployment-count }}
+runs:
+  using: composite
+  steps:
+    - id: govern
+      shell: bash
+      env:
+        VERCEL_TOKEN: ${{ inputs.vercel-token }}
+        GOVERNOR_TEAM_SLUG: ${{ inputs.team-slug }}
+        GOVERNOR_PROJECT: ${{ inputs.vercel-project }}
+        GOVERNOR_PROJECT_ID: ${{ inputs.vercel-project-id }}
+        GOVERNOR_REPO: ${{ inputs.repo || github.repository }}
+        GOVERNOR_BRANCH: ${{ inputs.branch }}
+        GOVERNOR_SHA: ${{ inputs.sha || github.sha }}
+        GOVERNOR_THRESHOLD: ${{ inputs.threshold }}
+        GOVERNOR_WINDOW_HOURS: ${{ inputs.window-hours }}
+        GOVERNOR_DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        args=(
+          push
+          --team-slug "$GOVERNOR_TEAM_SLUG"
+          --vercel-project "$GOVERNOR_PROJECT"
+          --vercel-project-id "$GOVERNOR_PROJECT_ID"
+          --repo "$GOVERNOR_REPO"
+          --branch "$GOVERNOR_BRANCH"
+          --sha "$GOVERNOR_SHA"
+          --threshold "$GOVERNOR_THRESHOLD"
+          --window-hours "$GOVERNOR_WINDOW_HOURS"
+        )
+        if [[ "$GOVERNOR_DRY_RUN" == "true" ]]; then
+          args+=(--dry-run)
+        fi
+        node "$GITHUB_ACTION_PATH/bin/deploy-governor.mjs" "${args[@]}"
