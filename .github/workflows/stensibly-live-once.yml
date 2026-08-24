@@ -25,5 +25,8 @@ jobs:
           id="$(awk 'BEGIN{IGNORECASE=1} /^x-stensibly-worker-version-id:/ {gsub("\r", ""); sub(/^[^:]*:[[:space:]]*/, ""); print; exit}' /tmp/headers)"
           receipt="$(printf '{\n  \"workerVersionTag\": \"%s\",\n  \"workerVersionId\": \"%s\"\n}\n' "$tag" "$id")"
           encoded="$(printf '%s' "$receipt" | base64 -w 0)"
-          gh api --method PUT "/repos/$REPOSITORY/contents/.smoke/stensibly-live.json" \
-            -f message='Record live Stensibly revision' -f content="$encoded" >/dev/null
+          path='.smoke/stensibly-live.json'
+          existing_sha="$(gh api "/repos/$REPOSITORY/contents/$path" --jq '.sha' 2>/dev/null || true)"
+          args=(--method PUT "/repos/$REPOSITORY/contents/$path" -f message='Record live Stensibly revision' -f content="$encoded")
+          if [[ -n "$existing_sha" ]]; then args+=(-f sha="$existing_sha"); fi
+          gh api "${args[@]}" >/dev/null
