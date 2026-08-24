@@ -66,6 +66,27 @@ test("batch mode deploys only the least recently deployed stale project", async 
   assert.deepEqual(created, ["teamleaderleo/other"]);
 });
 
+test("scheduled draining stays to one project below threshold", async () => {
+  const created = [];
+  const client = fakeClient({
+    countRecentDeployments: async () => 10,
+    hasProductionDeploymentForSha: async () => false,
+    latestProductionDeployment: async ({ project }) => ({ created: project === "prj_setzen" ? 100 : 200 }),
+    createGitHubProductionDeployment: async (project) => {
+      created.push(project.repo);
+      return { id: `dpl_${project.vercelProject}` };
+    },
+  });
+  const result = await governBatch({
+    client,
+    projects: [scrapbook, { vercelProject: "other", vercelProjectId: "prj_other", repo: "teamleaderleo/other", branch: "main" }],
+    getLatestCommit: async ({ repo }) => ({ sha: `sha-${repo}`, committedAt: null }),
+    threshold: 50,
+  });
+  assert.equal(result.mode, "drain");
+  assert.deepEqual(created, ["teamleaderleo/scrapbook"]);
+});
+
 test("batch ignores projects whose current head already has a production deployment", async () => {
   const created = [];
   const client = fakeClient({
