@@ -9,6 +9,23 @@ function response(body, status = 200) {
   });
 }
 
+test("project discovery reads the Vercel team's linked projects", async () => {
+  let seenUrl;
+  const client = new VercelClient({
+    token: "token",
+    teamSlug: "leo-lis-projects",
+    fetchImpl: async (url) => {
+      seenUrl = new URL(url);
+      return response({ projects: [{ id: "prj_one", name: "one" }] });
+    },
+  });
+
+  assert.deepEqual(await client.listProjects(), [{ id: "prj_one", name: "one" }]);
+  assert.equal(seenUrl.pathname, "/v9/projects");
+  assert.equal(seenUrl.searchParams.get("slug"), "leo-lis-projects");
+  assert.equal(seenUrl.searchParams.get("limit"), "100");
+});
+
 test("rolling count is team-wide and includes previews", async () => {
   let seenUrl;
   const client = new VercelClient({
