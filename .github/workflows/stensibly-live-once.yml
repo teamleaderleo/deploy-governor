@@ -1,0 +1,29 @@
+name: Stensibly live revision once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/stensibly-live-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record live Worker revision
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error -D /tmp/headers -o /tmp/body https://api.stensibly.com/health
+          tag="$(awk 'BEGIN{IGNORECASE=1} /^x-stensibly-worker-version-tag:/ {gsub("\r", ""); sub(/^[^:]*:[[:space:]]*/, ""); print; exit}' /tmp/headers)"
+          id="$(awk 'BEGIN{IGNORECASE=1} /^x-stensibly-worker-version-id:/ {gsub("\r", ""); sub(/^[^:]*:[[:space:]]*/, ""); print; exit}' /tmp/headers)"
+          receipt="$(printf '{\n  \"workerVersionTag\": \"%s\",\n  \"workerVersionId\": \"%s\"\n}\n' "$tag" "$id")"
+          encoded="$(printf '%s' "$receipt" | base64 -w 0)"
+          gh api --method PUT "/repos/$REPOSITORY/contents/.smoke/stensibly-live.json" \
+            -f message='Record live Stensibly revision' -f content="$encoded" >/dev/null
