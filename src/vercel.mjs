@@ -47,6 +47,11 @@ export class VercelClient {
     return payload;
   }
 
+  async listProjects({ limit = 100 } = {}) {
+    const payload = await this.request("/v9/projects", { query: { limit } });
+    return Array.isArray(payload?.projects) ? payload.projects : [];
+  }
+
   async listDeployments({ since, limit = 100, project, sha, target } = {}) {
     const payload = await this.request("/v7/deployments", {
       query: {
