@@ -1,4 +1,4 @@
-name: Vercel repo probe
+name: Vercel project discovery probe
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Inspect linked Scrapbook repository metadata after preview probe
+      - name: Inspect Vercel project Git links
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -24,17 +24,11 @@ jobs:
           payload="$(curl --fail-with-body --silent --show-error \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H 'Content-Type: application/json' \
-            'https://api.vercel.com/v1/integrations/search-repo?provider=github&slug=leo-lis-projects&query=scrapbook')"
-          repo="$(jq -c '[.repos[]? | select(((.namespace + "/" + .slug) | ascii_downcase) == "teamleaderleo/scrapbook")][0] // null' <<<"$payload")"
-          if [[ "$repo" == "null" ]]; then
-            echo 'Scrapbook was not returned by Vercel Git integration.' >&2
-            jq '{gitAccount, repos: [.repos[]? | {id, provider, name, slug, namespace, private, defaultBranch, updatedAt}]}' <<<"$payload" >&2
-            exit 1
-          fi
-          receipt="$(jq -n --argjson repo "$repo" '{repo: $repo}')"
+            'https://api.vercel.com/v9/projects?limit=100&slug=leo-lis-projects')"
+          receipt="$(jq '{projects: [.projects[]? | {id, name, framework, rootDirectory, link}]}' <<<"$payload")"
           encoded="$(printf '%s\n' "$receipt" | base64 -w 0)"
-          path='.smoke/vercel-repo.json'
+          path='.smoke/vercel-projects.json'
           existing_sha="$(gh api "/repos/$REPOSITORY/contents/$path" --jq '.sha' 2>/dev/null || true)"
-          args=(--method PUT "/repos/$REPOSITORY/contents/$path" -f message='Record Vercel repo probe' -f content="$encoded")
+          args=(--method PUT "/repos/$REPOSITORY/contents/$path" -f message='Record Vercel project discovery probe' -f content="$encoded")
           if [[ -n "$existing_sha" ]]; then args+=(-f sha="$existing_sha"); fi
           gh api "${args[@]}" >/dev/null
