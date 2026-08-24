@@ -60,9 +60,93 @@ export class VercelClient {
     return payload?.deployments ?? [];
   }
 
-  async countRecentDeployments({ since, threshold }) {
-    const deployments = await this.listDeployments({ since, limit: threshold });
+  async countRecentDeployments({ since, limit = 100 }) {
+    const deployments = await this.listDeployments({ since, limit });
     return deployments.length;
+  }
+
+  async listProjects({ limit = 100 } = {}) {
+    const payload = await this.request("/v9/projects", { query: { limit } });
+    return payload?.projects ?? [];
+  }
+
+  async listGitRepositories() {
+    const payload = await this.request("/v1/integrations/search-repo", {
+      query: { provider: "github" },
+    });
+    return payload?.repos ?? [];
+  }
+
+  async discoverGitLinkedProjects({ githubOwners = [] } = {}) {
+    const ownerAllowlist = new Set(githubOwners.map((owner) => owner.toLowerCase()));
+    const [projects, repositories] = await Promise.all([
+      this.listProjects(),
+      this.listGitRepositories(),
+    ]);
+    const repositoriesById = new Map(
+      repositories.map((repository) => [String(repository.id), repository]),
+    );
+    const eligible = [];
+    const skipped = [];
+
+    for (const project of projects) {
+      const link = project?.link;
+      if (!link || link.type !== "github") {
+        skipped.push({ vercelProject: project?.name ?? null, reason: "not-git-linked" });
+        continue;
+      }
+      const org = String(link.org ?? "");
+      if (ownerAllowlist.size > 0 && !ownerAllowlist.has(org.toLowerCase())) {
+        skipped.push({
+          vercelProject: project.name,
+          repo: `${org}/${link.repo}`,
+          reason: "owner-not-allowed",
+        });
+        continue;
+      }
+      const repository = repositoriesById.get(String(link.repoId));
+      if (!repository) {
+        skipped.push({
+          vercelProject: project.name,
+          repo: `${org}/${link.repo}`,
+          reason: "git-repository-not-visible",
+        });
+        continue;
+      }
+      const productionBranch = link.productionBranch;
+      const defaultBranch = repository.defaultBranch;
+      if (!productionBranch || !defaultBranch || productionBranch !== defaultBranch) {
+        skipped.push({
+          vercelProject: project.name,
+          repo: `${org}/${link.repo}`,
+          productionBranch: productionBranch ?? null,
+          defaultBranch: defaultBranch ?? null,
+          reason: "production-branch-not-default",
+        });
+        continue;
+      }
+      const repoUpdatedAt = numericTimestamp(repository.updatedAt);
+      if (repoUpdatedAt === null) {
+        skipped.push({
+          vercelProject: project.name,
+          repo: `${org}/${link.repo}`,
+          reason: "missing-repository-cursor",
+        });
+        continue;
+      }
+      eligible.push({
+        vercelProject: project.name,
+        vercelProjectId: project.id,
+        repo: `${org}/${link.repo}`,
+        repoId: String(link.repoId),
+        branch: productionBranch,
+        repoUpdatedAt,
+        repoPrivate: Boolean(repository.private),
+        rootDirectory: project.rootDirectory ?? null,
+      });
+    }
+
+    return { eligible, skipped };
   }
 
   async hasProductionDeploymentForSha({ project, sha }) {
@@ -91,9 +175,19 @@ export class VercelClient {
           org,
           repo: repoName,
           ref: branch,
-          sha,
+          ...(sha ? { sha } : {}),
         },
       },
     });
   }
+}
+
+export function deploymentRepoPushedAt(deployment) {
+  return numericTimestamp(deployment?.meta?.repoPushedAt);
+}
+
+function numericTimestamp(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
