@@ -1,0 +1,18 @@
+{
+  "repo": {
+    "id": 818860743,
+    "url": "https://github.com/teamleaderleo/scrapbook",
+    "provider": "github",
+    "name": "scrapbook",
+    "slug": "scrapbook",
+    "defaultBranch": "main",
+    "namespace": "teamleaderleo",
+    "owner": {
+      "id": 13091533,
+      "name": "teamleaderleo"
+    },
+    "private": false,
+    "updatedAt": 1787561596000,
+    "ownerType": "user"
+  }
+}
