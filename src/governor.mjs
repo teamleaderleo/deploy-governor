@@ -1,4 +1,5 @@
 import { decidePush, selectBatchProjects } from "./policy.mjs";
+import { deploymentRepoPushedAt } from "./vercel.mjs";
 
 export function rollingWindowStart(now, windowHours) {
   return now - windowHours * 60 * 60 * 1000;
@@ -22,7 +23,7 @@ export async function governPush({
     ? null
     : await client.countRecentDeployments({
         since: rollingWindowStart(now, windowHours),
-        threshold,
+        limit: threshold,
       });
 
   const decision = decidePush({
@@ -45,107 +46,143 @@ export async function governPush({
   };
 }
 
-export function latestCandidatesForProjects({ projects, candidates }) {
-  const configured = new Map(
-    projects.map((project) => [
-      `${project.repo.toLowerCase()}|${project.branch}`,
-      project,
-    ]),
+export async function discoverVercelProjectStates({ client, githubOwners = [] }) {
+  const discovery = await client.discoverGitLinkedProjects({ githubOwners });
+  const states = await Promise.all(
+    discovery.eligible.map(async (project) => {
+      const latest = await client.latestProductionDeployment({
+        project: project.vercelProjectId,
+      });
+      const repoPushedAt = deploymentRepoPushedAt(latest);
+      const deploymentCreatedAt = numericTimestamp(latest?.created ?? latest?.createdAt);
+      const coveredAt = repoPushedAt ?? deploymentCreatedAt;
+      return {
+        ...project,
+        latestDeploymentId: latest?.id ?? latest?.uid ?? null,
+        latestDeploymentState: latest?.state ?? latest?.readyState ?? null,
+        lastProductionAt: deploymentCreatedAt,
+        lastRepoPushedAt: repoPushedAt,
+        coveredAt,
+        stale: coveredAt === null || project.repoUpdatedAt > coveredAt,
+      };
+    }),
   );
-  const latest = new Map();
-  const ordered = [...candidates].sort((left, right) => {
-    const leftTime = Date.parse(left.createdAt ?? "") || 0;
-    const rightTime = Date.parse(right.createdAt ?? "") || 0;
-    return rightTime - leftTime || Number(right.runId ?? 0) - Number(left.runId ?? 0);
-  });
-
-  for (const candidate of ordered) {
-    const key = `${candidate.repo.toLowerCase()}|${candidate.branch}`;
-    const project = configured.get(key);
-    if (!project || latest.has(key)) continue;
-    latest.set(key, {
-      ...project,
-      headSha: candidate.sha,
-      candidateCreatedAt: candidate.createdAt ?? null,
-      candidateRunId: candidate.runId ?? null,
-    });
-  }
-  return [...latest.values()];
+  return { states, skipped: discovery.skipped };
 }
 
-export async function governBatch({
+export async function governPoll({
   client,
-  projects,
-  candidates,
+  githubOwners = [],
   threshold = 50,
   windowHours = 24,
   now = Date.now(),
   dryRun = false,
 }) {
   const since = rollingWindowStart(now, windowHours);
-  const deploymentCount = await client.countRecentDeployments({ since, threshold });
-  const candidateProjects = latestCandidatesForProjects({ projects, candidates });
+  const [deploymentCount, discovery] = await Promise.all([
+    client.countRecentDeployments({ since, limit: threshold }),
+    discoverVercelProjectStates({ client, githubOwners }),
+  ]);
+  const staleProjects = discovery.states
+    .filter((project) => project.stale)
+    .sort((left, right) => left.repoUpdatedAt - right.repoUpdatedAt || left.repo.localeCompare(right.repo));
+  const capacity = Math.max(0, threshold - deploymentCount);
+  const selected = staleProjects.slice(0, capacity);
+  const deployments = await deploySelected({ client, selected, dryRun });
 
-  const states = [];
-  for (const project of candidateProjects) {
-    const alreadyDeployed = await client.hasProductionDeploymentForSha({
-      project: project.vercelProjectId,
-      sha: project.headSha,
-    });
-    const latest = await client.latestProductionDeployment({ project: project.vercelProjectId });
+  return {
+    mode: deploymentCount < threshold ? "immediate" : "batch-wait",
+    deploymentCount,
+    threshold,
+    capacity,
+    staleProjects: summarize(staleProjects),
+    selected: summarize(selected),
+    deployments,
+    skipped: discovery.skipped,
+    dryRun,
+  };
+}
 
-    states.push({
-      ...project,
-      alreadyDeployed,
-      lastProductionAt: latest?.created ?? latest?.createdAt ?? null,
-    });
-  }
+export async function governBatch({
+  client,
+  githubOwners = [],
+  hardCeiling = 98,
+  windowHours = 24,
+  now = Date.now(),
+  dryRun = false,
+}) {
+  const since = rollingWindowStart(now, windowHours);
+  const [deploymentCount, discovery] = await Promise.all([
+    client.countRecentDeployments({ since, limit: hardCeiling }),
+    discoverVercelProjectStates({ client, githubOwners }),
+  ]);
+  const staleProjects = discovery.states.filter((project) => project.stale);
+  const selected = deploymentCount >= hardCeiling
+    ? []
+    : selectBatchProjects({ staleProjects });
+  const deployments = await deploySelected({ client, selected, dryRun });
 
-  const staleProjects = states.filter((project) => !project.alreadyDeployed);
-  const selected = selectBatchProjects({ staleProjects });
+  return {
+    mode: deploymentCount >= hardCeiling ? "hard-hold" : "batch",
+    deploymentCount,
+    hardCeiling,
+    staleProjects: summarize(staleProjects),
+    selected: summarize(selected),
+    deployments,
+    skipped: discovery.skipped,
+    dryRun,
+  };
+}
+
+async function deploySelected({ client, selected, dryRun }) {
   const deployments = [];
-
   for (const project of selected) {
     if (dryRun) {
       deployments.push({
         repo: project.repo,
         vercelProject: project.vercelProject,
-        sha: project.headSha,
+        branch: project.branch,
         dryRun: true,
       });
       continue;
     }
-    const deployment = await client.createGitHubProductionDeployment({ ...project, sha: project.headSha });
+    const deployment = await client.createGitHubProductionDeployment(project);
     deployments.push({
       repo: project.repo,
       vercelProject: project.vercelProject,
-      sha: project.headSha,
+      branch: project.branch,
       deploymentId: deployment?.id ?? deployment?.uid ?? null,
       deploymentUrl: deployment?.url ?? null,
       dryRun: false,
     });
   }
+  return deployments;
+}
 
-  return {
-    mode: deploymentCount >= threshold ? "batch" : "drain",
-    deploymentCount,
-    staleProjects: staleProjects.map(({
-      repo,
-      vercelProject,
-      headSha,
-      candidateCreatedAt,
-      candidateRunId,
-      lastProductionAt,
-    }) => ({
-      repo,
-      vercelProject,
-      headSha,
-      candidateCreatedAt,
-      candidateRunId,
-      lastProductionAt,
-    })),
-    selected: selected.map(({ repo, vercelProject, headSha }) => ({ repo, vercelProject, headSha })),
-    deployments,
-    dryRun,
-  };
+function summarize(projects) {
+  return projects.map(({
+    repo,
+    vercelProject,
+    vercelProjectId,
+    branch,
+    repoUpdatedAt,
+    lastRepoPushedAt,
+    lastProductionAt,
+    latestDeploymentId,
+  }) => ({
+    repo,
+    vercelProject,
+    vercelProjectId,
+    branch,
+    repoUpdatedAt,
+    lastRepoPushedAt,
+    lastProductionAt,
+    latestDeploymentId,
+  }));
+}
+
+function numericTimestamp(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
