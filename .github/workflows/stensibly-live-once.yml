@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Recheck live OIDC Worker revision
+      - name: Record timestamped live Worker revision
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
@@ -23,8 +23,9 @@ jobs:
           curl --fail-with-body --silent --show-error -D /tmp/headers -o /tmp/body https://api.stensibly.com/health
           tag="$(awk 'BEGIN{IGNORECASE=1} /^x-stensibly-worker-version-tag:/ {gsub("\r", ""); sub(/^[^:]*:[[:space:]]*/, ""); print; exit}' /tmp/headers)"
           id="$(awk 'BEGIN{IGNORECASE=1} /^x-stensibly-worker-version-id:/ {gsub("\r", ""); sub(/^[^:]*:[[:space:]]*/, ""); print; exit}' /tmp/headers)"
-          receipt="$(printf '{\n  \"workerVersionTag\": \"%s\",\n  \"workerVersionId\": \"%s\"\n}\n' "$tag" "$id")"
-          encoded="$(printf '%s' "$receipt" | base64 -w 0)"
+          checked_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          receipt="$(jq -n --arg tag "$tag" --arg id "$id" --arg checkedAt "$checked_at" '{workerVersionTag:$tag,workerVersionId:$id,checkedAt:$checkedAt}')"
+          encoded="$(printf '%s\n' "$receipt" | base64 -w 0)"
           path='.smoke/stensibly-live.json'
           existing_sha="$(gh api "/repos/$REPOSITORY/contents/$path" --jq '.sha' 2>/dev/null || true)"
           args=(--method PUT "/repos/$REPOSITORY/contents/$path" -f message='Record live Stensibly revision' -f content="$encoded")
