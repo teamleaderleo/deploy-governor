@@ -1,0 +1,42 @@
+name: Stensibly dispatch smoke receipt
+
+on:
+  repository_dispatch:
+    types: [vercel-deploy-candidate]
+
+permissions:
+  contents: write
+
+jobs:
+  receipt:
+    if: github.event.client_payload.repository == 'teamleaderleo/scrapbook'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record received Stensibly candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_REPOSITORY: ${{ github.event.client_payload.repository }}
+          SOURCE_BRANCH: ${{ github.event.client_payload.branch }}
+          SOURCE_SHA: ${{ github.event.client_payload.sha }}
+          DELIVERY_ID: ${{ github.event.client_payload.delivery_id }}
+        run: |
+          set -euo pipefail
+          receipt="$(printf '{\n  \"repository\": \"%s\",\n  \"branch\": \"%s\",\n  \"sha\": \"%s\",\n  \"deliveryId\": \"%s\"\n}\n' \
+            "$SOURCE_REPOSITORY" "$SOURCE_BRANCH" "$SOURCE_SHA" "$DELIVERY_ID")"
+          encoded="$(printf '%s' "$receipt" | base64 -w 0)"
+          path='.smoke/stensibly-dispatch.json'
+          existing_sha="$(gh api "/repos/$REPOSITORY/contents/$path" --jq '.sha' 2>/dev/null || true)"
+          args=(
+            --method PUT
+            -H 'Accept: application/vnd.github+json'
+            -H 'X-GitHub-Api-Version: 2022-11-28'
+            "/repos/$REPOSITORY/contents/$path"
+            -f message='Record Stensibly dispatch smoke'
+            -f content="$encoded"
+          )
+          if [[ -n "$existing_sha" ]]; then
+            args+=(-f sha="$existing_sha")
+          fi
+          gh api "${args[@]}" >/dev/null
