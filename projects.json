@@ -4,6 +4,7 @@
   "hardCeiling": 98,
   "windowHours": 24,
   "githubOwners": ["teamleaderleo"],
+  "managedRepositories": ["teamleaderleo/scrapbook"],
   "projects": [
     {
       "vercelProject": "setzen",
