@@ -1,0 +1,40 @@
+name: Vercel production poll
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Evaluate without deploying
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-governor-global
+  cancel-in-progress: false
+
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Require governor credential
+        if: env.VERCEL_TOKEN == ''
+        run: |
+          echo 'VERCEL_TOKEN is not configured.' >&2
+          exit 1
+      - name: Admit fresh production changes below threshold
+        if: env.VERCEL_TOKEN != ''
+        run: >-
+          node bin/deploy-governor.mjs poll --config projects.json
+          ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
