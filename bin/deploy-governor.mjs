@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { appendFile } from "node:fs/promises";
-import { loadConfig } from "../src/config.mjs";
-import { getLatestCommit } from "../src/github.mjs";
+import { findProject, loadConfig } from "../src/config.mjs";
+import { listDispatchCandidates } from "../src/github.mjs";
 import { governBatch, governPush } from "../src/governor.mjs";
 import { VercelClient } from "../src/vercel.mjs";
 
@@ -74,15 +74,23 @@ async function main() {
     return;
   }
 
-  if (args.command === "batch") {
+  if (args.command === "candidate") {
     const config = await loadConfig(args.config ?? "projects.json");
+    const repo = args.repo;
+    const branch = args.branch ?? "main";
+    const sha = args.sha;
+    if (!repo || !sha) throw new Error("candidate requires --repo and --sha.");
+    const project = findProject(config, { repo, branch });
+    if (!project) {
+      await print({ action: "ignored", reason: "unregistered-project", repo, branch, sha });
+      return;
+    }
     const client = new VercelClient({ token, teamSlug: config.teamSlug });
     await print(
-      await governBatch({
+      await governPush({
         client,
-        projects: config.projects,
-        getLatestCommit,
-        githubToken: process.env.GITHUB_TOKEN,
+        project,
+        sha,
         threshold: numberArg(args.threshold, config.threshold),
         windowHours: numberArg(args.windowHours, config.windowHours),
         dryRun: Boolean(args.dryRun),
@@ -91,7 +99,29 @@ async function main() {
     return;
   }
 
-  throw new Error("Usage: deploy-governor <push|batch> [options]");
+  if (args.command === "batch") {
+    const config = await loadConfig(args.config ?? "projects.json");
+    const governorRepository = args.governorRepo ?? process.env.GITHUB_REPOSITORY;
+    if (!governorRepository) throw new Error("batch requires --governor-repo or GITHUB_REPOSITORY.");
+    const candidates = await listDispatchCandidates({
+      repository: governorRepository,
+      token: process.env.GITHUB_TOKEN,
+    });
+    const client = new VercelClient({ token, teamSlug: config.teamSlug });
+    await print(
+      await governBatch({
+        client,
+        projects: config.projects,
+        candidates,
+        threshold: numberArg(args.threshold, config.threshold),
+        windowHours: numberArg(args.windowHours, config.windowHours),
+        dryRun: Boolean(args.dryRun),
+      }),
+    );
+    return;
+  }
+
+  throw new Error("Usage: deploy-governor <push|candidate|batch> [options]");
 }
 
 main().catch((error) => {
