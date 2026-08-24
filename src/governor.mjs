@@ -46,8 +46,15 @@ export async function governPush({
   };
 }
 
-export async function discoverVercelProjectStates({ client, githubOwners = [] }) {
-  const discovery = await client.discoverGitLinkedProjects({ githubOwners });
+export async function discoverVercelProjectStates({
+  client,
+  githubOwners = [],
+  managedRepositories = [],
+}) {
+  const discovery = await client.discoverGitLinkedProjects({
+    githubOwners,
+    managedRepositories,
+  });
   const states = await Promise.all(
     discovery.eligible.map(async (project) => {
       const latest = await client.latestProductionDeployment({
@@ -73,6 +80,7 @@ export async function discoverVercelProjectStates({ client, githubOwners = [] })
 export async function governPoll({
   client,
   githubOwners = [],
+  managedRepositories = [],
   threshold = 50,
   windowHours = 24,
   now = Date.now(),
@@ -81,7 +89,7 @@ export async function governPoll({
   const since = rollingWindowStart(now, windowHours);
   const [deploymentCount, discovery] = await Promise.all([
     client.countRecentDeployments({ since, limit: threshold }),
-    discoverVercelProjectStates({ client, githubOwners }),
+    discoverVercelProjectStates({ client, githubOwners, managedRepositories }),
   ]);
   const staleProjects = discovery.states
     .filter((project) => project.stale)
@@ -106,6 +114,7 @@ export async function governPoll({
 export async function governBatch({
   client,
   githubOwners = [],
+  managedRepositories = [],
   hardCeiling = 98,
   windowHours = 24,
   now = Date.now(),
@@ -114,7 +123,7 @@ export async function governBatch({
   const since = rollingWindowStart(now, windowHours);
   const [deploymentCount, discovery] = await Promise.all([
     client.countRecentDeployments({ since, limit: hardCeiling }),
-    discoverVercelProjectStates({ client, githubOwners }),
+    discoverVercelProjectStates({ client, githubOwners, managedRepositories }),
   ]);
   const staleProjects = discovery.states.filter((project) => project.stale);
   const selected = deploymentCount >= hardCeiling
