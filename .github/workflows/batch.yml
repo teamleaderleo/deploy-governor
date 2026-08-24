@@ -12,10 +12,9 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
-  group: deploy-governor-global-batch
+  group: deploy-governor-global
   cancel-in-progress: false
 
 jobs:
@@ -24,7 +23,6 @@ jobs:
     timeout-minutes: 5
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,7 +31,7 @@ jobs:
       - name: Explain inactive governor
         if: env.VERCEL_TOKEN == ''
         run: echo 'VERCEL_TOKEN is not configured; the governor is inactive.'
-      - name: Run global batch slot
+      - name: Run one global batch slot
         if: env.VERCEL_TOKEN != ''
         run: >-
           node bin/deploy-governor.mjs batch --config projects.json
