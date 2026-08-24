@@ -1,0 +1,13 @@
+{
+  "mode": "poll",
+  "states": [
+    {
+      "repo": "teamleaderleo/scrapbook",
+      "branch": "main",
+      "vercelProject": "setzen",
+      "headSha": "92354ce8875dbd5c75b3a4ec10ee75c4b63ea4dd",
+      "status": "current"
+    }
+  ],
+  "dispatched": []
+}
