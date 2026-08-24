@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { appendFile } from "node:fs/promises";
 import { findProject, loadConfig } from "../src/config.mjs";
-import { listDispatchCandidates } from "../src/github.mjs";
-import { governBatch, governPush } from "../src/governor.mjs";
+import { governBatch, governPoll, governPush } from "../src/governor.mjs";
 import { VercelClient } from "../src/vercel.mjs";
 
 function parseArgs(argv) {
@@ -99,20 +98,13 @@ async function main() {
     return;
   }
 
-  if (args.command === "batch") {
+  if (args.command === "poll") {
     const config = await loadConfig(args.config ?? "projects.json");
-    const governorRepository = args.governorRepo ?? process.env.GITHUB_REPOSITORY;
-    if (!governorRepository) throw new Error("batch requires --governor-repo or GITHUB_REPOSITORY.");
-    const candidates = await listDispatchCandidates({
-      repository: governorRepository,
-      token: process.env.GITHUB_TOKEN,
-    });
     const client = new VercelClient({ token, teamSlug: config.teamSlug });
     await print(
-      await governBatch({
+      await governPoll({
         client,
-        projects: config.projects,
-        candidates,
+        githubOwners: config.githubOwners,
         threshold: numberArg(args.threshold, config.threshold),
         windowHours: numberArg(args.windowHours, config.windowHours),
         dryRun: Boolean(args.dryRun),
@@ -121,7 +113,22 @@ async function main() {
     return;
   }
 
-  throw new Error("Usage: deploy-governor <push|candidate|batch> [options]");
+  if (args.command === "batch") {
+    const config = await loadConfig(args.config ?? "projects.json");
+    const client = new VercelClient({ token, teamSlug: config.teamSlug });
+    await print(
+      await governBatch({
+        client,
+        githubOwners: config.githubOwners,
+        hardCeiling: numberArg(args.hardCeiling, config.hardCeiling),
+        windowHours: numberArg(args.windowHours, config.windowHours),
+        dryRun: Boolean(args.dryRun),
+      }),
+    );
+    return;
+  }
+
+  throw new Error("Usage: deploy-governor <push|candidate|poll|batch> [options]");
 }
 
 main().catch((error) => {
