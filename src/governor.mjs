@@ -81,7 +81,7 @@ export async function governBatch({
   }
 
   const staleProjects = states.filter((project) => !project.alreadyDeployed);
-  const selected = selectBatchProjects({ staleProjects, deploymentCount, threshold });
+  const selected = selectBatchProjects({ staleProjects });
   const deployments = [];
 
   for (const project of selected) {
@@ -100,7 +100,7 @@ export async function governBatch({
   }
 
   return {
-    mode: deploymentCount >= threshold ? "batch" : "immediate-recovery",
+    mode: deploymentCount >= threshold ? "batch" : "drain",
     deploymentCount,
     staleProjects: staleProjects.map(({ repo, vercelProject, headSha, lastProductionAt }) => ({
       repo,
