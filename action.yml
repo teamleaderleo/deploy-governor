@@ -54,16 +54,28 @@ runs:
       shell: bash
       env:
         VERCEL_TOKEN: ${{ inputs.vercel-token }}
+        GOVERNOR_TEAM_SLUG: ${{ inputs.team-slug }}
+        GOVERNOR_PROJECT: ${{ inputs.vercel-project }}
+        GOVERNOR_PROJECT_ID: ${{ inputs.vercel-project-id }}
         GOVERNOR_REPO: ${{ inputs.repo || github.repository }}
+        GOVERNOR_BRANCH: ${{ inputs.branch }}
         GOVERNOR_SHA: ${{ inputs.sha || github.sha }}
-      run: >-
-        node "$GITHUB_ACTION_PATH/bin/deploy-governor.mjs" push
-        --team-slug "${{ inputs.team-slug }}"
-        --vercel-project "${{ inputs.vercel-project }}"
-        --vercel-project-id "${{ inputs.vercel-project-id }}"
-        --repo "$GOVERNOR_REPO"
-        --branch "${{ inputs.branch }}"
-        --sha "$GOVERNOR_SHA"
-        --threshold "${{ inputs.threshold }}"
-        --window-hours "${{ inputs.window-hours }}"
-        ${{ inputs.dry-run == 'true' && '--dry-run' || '' }}
+        GOVERNOR_THRESHOLD: ${{ inputs.threshold }}
+        GOVERNOR_WINDOW_HOURS: ${{ inputs.window-hours }}
+        GOVERNOR_DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        args=(
+          push
+          --team-slug "$GOVERNOR_TEAM_SLUG"
+          --vercel-project "$GOVERNOR_PROJECT"
+          --vercel-project-id "$GOVERNOR_PROJECT_ID"
+          --repo "$GOVERNOR_REPO"
+          --branch "$GOVERNOR_BRANCH"
+          --sha "$GOVERNOR_SHA"
+          --threshold "$GOVERNOR_THRESHOLD"
+          --window-hours "$GOVERNOR_WINDOW_HOURS"
+        )
+        if [[ "$GOVERNOR_DRY_RUN" == "true" ]]; then
+          args+=(--dry-run)
+        fi
+        node "$GITHUB_ACTION_PATH/bin/deploy-governor.mjs" "${args[@]}"
