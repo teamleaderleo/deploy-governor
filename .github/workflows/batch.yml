@@ -1,0 +1,36 @@
+name: Global deploy batch
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Evaluate without deploying
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-governor-global-batch
+  cancel-in-progress: false
+
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Explain inactive governor
+        if: env.VERCEL_TOKEN == ''
+        run: echo 'VERCEL_TOKEN is not configured; the governor is inactive.'
+      - name: Run global batch slot
+        if: env.VERCEL_TOKEN != ''
+        run: >-
+          node bin/deploy-governor.mjs batch --config projects.json
+          ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
