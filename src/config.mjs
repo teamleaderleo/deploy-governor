@@ -11,6 +11,13 @@ export async function loadConfig(path) {
   };
 }
 
+export function findProject(config, { repo, branch = "main" }) {
+  const normalizedRepo = String(repo ?? "").toLowerCase();
+  return config.projects.find(
+    (project) => project.repo.toLowerCase() === normalizedRepo && project.branch === branch,
+  ) ?? null;
+}
+
 export function validateConfig(config) {
   if (!config || typeof config !== "object") throw new Error("Config must be an object.");
   if (!config.teamSlug) throw new Error("Config requires teamSlug.");
@@ -20,7 +27,12 @@ export function validateConfig(config) {
     for (const key of ["vercelProject", "vercelProjectId", "repo"]) {
       if (!project[key]) throw new Error(`Each project requires ${key}.`);
     }
-    if (!project.repo.includes("/")) throw new Error(`Invalid GitHub repository: ${project.repo}`);
+    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(project.repo)) {
+      throw new Error(`Invalid GitHub repository: ${project.repo}`);
+    }
+    if (project.branch !== undefined && (!project.branch || project.branch.includes("|"))) {
+      throw new Error(`Invalid production branch: ${project.branch}`);
+    }
   }
 
   if (config.threshold !== undefined && (!Number.isInteger(config.threshold) || config.threshold < 1 || config.threshold > 100)) {

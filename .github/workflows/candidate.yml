@@ -1,0 +1,40 @@
+name: Govern deploy candidate
+run-name: "candidate|${{ github.event.client_payload.repository }}|${{ github.event.client_payload.branch }}|${{ github.event.client_payload.sha }}"
+
+on:
+  repository_dispatch:
+    types: [vercel-deploy-candidate]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "deploy-candidate-${{ github.event.client_payload.repository }}"
+  cancel-in-progress: false
+
+jobs:
+  govern:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      CANDIDATE_REPOSITORY: ${{ github.event.client_payload.repository }}
+      CANDIDATE_BRANCH: ${{ github.event.client_payload.branch }}
+      CANDIDATE_SHA: ${{ github.event.client_payload.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Require governor credential
+        if: env.VERCEL_TOKEN == ''
+        run: |
+          echo 'VERCEL_TOKEN is not configured.' >&2
+          exit 1
+      - name: Govern exact candidate
+        run: |
+          node bin/deploy-governor.mjs candidate \
+            --config projects.json \
+            --repo "$CANDIDATE_REPOSITORY" \
+            --branch "$CANDIDATE_BRANCH" \
+            --sha "$CANDIDATE_SHA"

@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: deploy-governor-global-batch
@@ -26,6 +27,9 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - name: Explain inactive governor
         if: env.VERCEL_TOKEN == ''
         run: echo 'VERCEL_TOKEN is not configured; the governor is inactive.'
