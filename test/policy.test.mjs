@@ -14,10 +14,8 @@ test("an already deployed commit is idempotent", () => {
   assert.equal(decidePush({ deploymentCount: 50, threshold: 50, alreadyDeployed: true }).action, "already-current");
 });
 
-test("batch mode globally selects only one stale project", () => {
+test("the scheduler globally selects only one stale project", () => {
   const selected = selectBatchProjects({
-    deploymentCount: 50,
-    threshold: 50,
     staleProjects: [
       { repo: "me/newer", lastProductionAt: 200 },
       { repo: "me/older", lastProductionAt: 100 },
@@ -27,15 +25,13 @@ test("batch mode globally selects only one stale project", () => {
   assert.deepEqual(selected.map((item) => item.repo), ["me/never"]);
 });
 
-test("below the threshold the scheduler can recover stale projects up to available capacity", () => {
+test("the scheduler never bursts below the threshold", () => {
   const selected = selectBatchProjects({
-    deploymentCount: 48,
-    threshold: 50,
     staleProjects: [
       { repo: "me/a", lastProductionAt: 100 },
       { repo: "me/b", lastProductionAt: 200 },
       { repo: "me/c", lastProductionAt: 300 },
     ],
   });
-  assert.deepEqual(selected.map((item) => item.repo), ["me/a", "me/b"]);
+  assert.deepEqual(selected.map((item) => item.repo), ["me/a"]);
 });
