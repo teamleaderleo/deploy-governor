@@ -77,8 +77,9 @@ export class VercelClient {
     return payload?.repos ?? [];
   }
 
-  async discoverGitLinkedProjects({ githubOwners = [] } = {}) {
+  async discoverGitLinkedProjects({ githubOwners = [], managedRepositories = [] } = {}) {
     const ownerAllowlist = new Set(githubOwners.map((owner) => owner.toLowerCase()));
+    const managedAllowlist = new Set(managedRepositories.map((repo) => repo.toLowerCase()));
     const [projects, repositories] = await Promise.all([
       this.listProjects(),
       this.listGitRepositories(),
@@ -96,21 +97,18 @@ export class VercelClient {
         continue;
       }
       const org = String(link.org ?? "");
+      const repo = `${org}/${link.repo}`;
       if (ownerAllowlist.size > 0 && !ownerAllowlist.has(org.toLowerCase())) {
-        skipped.push({
-          vercelProject: project.name,
-          repo: `${org}/${link.repo}`,
-          reason: "owner-not-allowed",
-        });
+        skipped.push({ vercelProject: project.name, repo, reason: "owner-not-allowed" });
+        continue;
+      }
+      if (managedAllowlist.size > 0 && !managedAllowlist.has(repo.toLowerCase())) {
+        skipped.push({ vercelProject: project.name, repo, reason: "not-managed" });
         continue;
       }
       const repository = repositoriesById.get(String(link.repoId));
       if (!repository) {
-        skipped.push({
-          vercelProject: project.name,
-          repo: `${org}/${link.repo}`,
-          reason: "git-repository-not-visible",
-        });
+        skipped.push({ vercelProject: project.name, repo, reason: "git-repository-not-visible" });
         continue;
       }
       const productionBranch = link.productionBranch;
@@ -118,7 +116,7 @@ export class VercelClient {
       if (!productionBranch || !defaultBranch || productionBranch !== defaultBranch) {
         skipped.push({
           vercelProject: project.name,
-          repo: `${org}/${link.repo}`,
+          repo,
           productionBranch: productionBranch ?? null,
           defaultBranch: defaultBranch ?? null,
           reason: "production-branch-not-default",
@@ -127,17 +125,13 @@ export class VercelClient {
       }
       const repoUpdatedAt = numericTimestamp(repository.updatedAt);
       if (repoUpdatedAt === null) {
-        skipped.push({
-          vercelProject: project.name,
-          repo: `${org}/${link.repo}`,
-          reason: "missing-repository-cursor",
-        });
+        skipped.push({ vercelProject: project.name, repo, reason: "missing-repository-cursor" });
         continue;
       }
       eligible.push({
         vercelProject: project.name,
         vercelProjectId: project.id,
-        repo: `${org}/${link.repo}`,
+        repo,
         repoId: String(link.repoId),
         branch: productionBranch,
         repoUpdatedAt,
