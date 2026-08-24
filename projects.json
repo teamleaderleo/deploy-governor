@@ -1,7 +1,9 @@
 {
   "teamSlug": "leo-lis-projects",
   "threshold": 50,
+  "hardCeiling": 98,
   "windowHours": 24,
+  "githubOwners": ["teamleaderleo"],
   "projects": [
     {
       "vercelProject": "setzen",
