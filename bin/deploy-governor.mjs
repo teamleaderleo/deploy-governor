@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 import { appendFile } from "node:fs/promises";
 import { findProject, loadConfig } from "../src/config.mjs";
-import { listDispatchCandidates } from "../src/github.mjs";
-import { governBatch, governPush } from "../src/governor.mjs";
+import {
+  dispatchCandidate,
+  getLatestCommit,
+  listDispatchCandidates,
+} from "../src/github.mjs";
+import { governBatch, governPush, pollProjects } from "../src/governor.mjs";
+import { resolveProjects } from "../src/projects.mjs";
 import { VercelClient } from "../src/vercel.mjs";
 
 function parseArgs(argv) {
@@ -43,6 +48,13 @@ async function print(result) {
   await appendFile(process.env.GITHUB_OUTPUT, lines);
 }
 
+async function centralContext(args, token) {
+  const config = await loadConfig(args.config ?? "projects.json");
+  const client = new VercelClient({ token, teamSlug: config.teamSlug });
+  const projects = await resolveProjects({ client, config });
+  return { config, client, projects };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const token = process.env.VERCEL_TOKEN;
@@ -75,17 +87,16 @@ async function main() {
   }
 
   if (args.command === "candidate") {
-    const config = await loadConfig(args.config ?? "projects.json");
+    const { config, client, projects } = await centralContext(args, token);
     const repo = args.repo;
     const branch = args.branch ?? "main";
     const sha = args.sha;
     if (!repo || !sha) throw new Error("candidate requires --repo and --sha.");
-    const project = findProject(config, { repo, branch });
+    const project = findProject(projects, { repo, branch });
     if (!project) {
       await print({ action: "ignored", reason: "unregistered-project", repo, branch, sha });
       return;
     }
-    const client = new VercelClient({ token, teamSlug: config.teamSlug });
     await print(
       await governPush({
         client,
@@ -99,19 +110,38 @@ async function main() {
     return;
   }
 
-  if (args.command === "batch") {
-    const config = await loadConfig(args.config ?? "projects.json");
+  if (args.command === "poll" || args.command === "batch") {
+    const { config, client, projects } = await centralContext(args, token);
     const governorRepository = args.governorRepo ?? process.env.GITHUB_REPOSITORY;
-    if (!governorRepository) throw new Error("batch requires --governor-repo or GITHUB_REPOSITORY.");
+    if (!governorRepository) {
+      throw new Error(`${args.command} requires --governor-repo or GITHUB_REPOSITORY.`);
+    }
+    const githubToken = process.env.GITHUB_TOKEN;
     const candidates = await listDispatchCandidates({
       repository: governorRepository,
-      token: process.env.GITHUB_TOKEN,
+      token: githubToken,
     });
-    const client = new VercelClient({ token, teamSlug: config.teamSlug });
+
+    if (args.command === "poll") {
+      await print(
+        await pollProjects({
+          client,
+          projects,
+          candidates,
+          getLatestCommit,
+          dispatchCandidate,
+          governorRepository,
+          githubToken,
+          dryRun: Boolean(args.dryRun),
+        }),
+      );
+      return;
+    }
+
     await print(
       await governBatch({
         client,
-        projects: config.projects,
+        projects,
         candidates,
         threshold: numberArg(args.threshold, config.threshold),
         windowHours: numberArg(args.windowHours, config.windowHours),
@@ -121,7 +151,7 @@ async function main() {
     return;
   }
 
-  throw new Error("Usage: deploy-governor <push|candidate|batch> [options]");
+  throw new Error("Usage: deploy-governor <push|candidate|poll|batch> [options]");
 }
 
 main().catch((error) => {
