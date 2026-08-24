@@ -3,6 +3,7 @@ name: Poll governed production heads
 on:
   schedule:
     - cron: '*/5 * * * *'
+  # Changes to this workflow self-smoke the reconciliation path once on main.
   push:
     branches: [main]
     paths:
