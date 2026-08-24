@@ -73,6 +73,95 @@ export function latestCandidatesForProjects({ projects, candidates }) {
   return [...latest.values()];
 }
 
+export async function pollProjects({
+  client,
+  projects,
+  candidates,
+  getLatestCommit,
+  dispatchCandidate,
+  governorRepository,
+  githubToken,
+  dryRun = false,
+}) {
+  const knownCandidates = new Map(
+    latestCandidatesForProjects({ projects, candidates }).map((project) => [
+      `${project.repo.toLowerCase()}|${project.branch}`,
+      project,
+    ]),
+  );
+  const states = [];
+  const dispatched = [];
+
+  for (const project of projects) {
+    const key = `${project.repo.toLowerCase()}|${project.branch}`;
+    let head;
+    try {
+      head = await getLatestCommit({
+        repo: project.repo,
+        branch: project.branch,
+        token: githubToken,
+      });
+    } catch (error) {
+      states.push({
+        repo: project.repo,
+        branch: project.branch,
+        vercelProject: project.vercelProject,
+        status: "unobservable",
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+
+    const alreadyDeployed = await client.hasProductionDeploymentForSha({
+      project: project.vercelProjectId,
+      sha: head.sha,
+    });
+    if (alreadyDeployed) {
+      states.push({
+        repo: project.repo,
+        branch: project.branch,
+        vercelProject: project.vercelProject,
+        headSha: head.sha,
+        status: "current",
+      });
+      continue;
+    }
+
+    const candidate = knownCandidates.get(key);
+    if (candidate?.headSha === head.sha) {
+      states.push({
+        repo: project.repo,
+        branch: project.branch,
+        vercelProject: project.vercelProject,
+        headSha: head.sha,
+        status: "candidate-recorded",
+        candidateRunId: candidate.candidateRunId,
+      });
+      continue;
+    }
+
+    if (!dryRun) {
+      const dispatchedCandidate = await dispatchCandidate({
+        repository: governorRepository,
+        repo: project.repo,
+        branch: project.branch,
+        sha: head.sha,
+        token: githubToken,
+      });
+      dispatched.push(dispatchedCandidate);
+    }
+    states.push({
+      repo: project.repo,
+      branch: project.branch,
+      vercelProject: project.vercelProject,
+      headSha: head.sha,
+      status: dryRun ? "dispatch-needed" : "dispatched",
+    });
+  }
+
+  return { mode: "poll", states, dispatched, dryRun };
+}
+
 export async function governBatch({
   client,
   projects,
