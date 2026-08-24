@@ -61,6 +61,46 @@ export async function listDispatchCandidates({
   return candidates;
 }
 
+export async function dispatchCandidate({
+  repository,
+  repo,
+  branch,
+  sha,
+  token,
+  deliveryId = `poll:${repo}:${branch}:${sha}`,
+  fetchImpl = globalThis.fetch,
+}) {
+  if (!repoPattern.test(repository ?? "")) {
+    throw new Error(`Invalid governor repository: ${repository}`);
+  }
+  if (!repoPattern.test(repo ?? "") || !branch || branch.includes("|") || !shaPattern.test(sha ?? "")) {
+    throw new Error("Invalid deploy candidate.");
+  }
+  const url = new URL(`/repos/${repository}/dispatches`, API);
+  const response = await fetchImpl(url, {
+    method: "POST",
+    headers: {
+      ...headers(token),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      event_type: "vercel-deploy-candidate",
+      client_payload: {
+        repository: repo,
+        branch,
+        sha,
+        delivery_id: deliveryId,
+      },
+    }),
+  });
+  if (response.status !== 204) {
+    const text = await response.text();
+    throw new Error(`GitHub POST ${url.pathname} failed (${response.status}): ${text}`);
+  }
+  await response.body?.cancel();
+  return { repo, branch, sha, deliveryId };
+}
+
 export async function getLatestCommit({ repo, branch = "main", token, fetchImpl = globalThis.fetch }) {
   const url = new URL(`/repos/${repo}/commits/${encodeURIComponent(branch)}`, API);
   const response = await fetchImpl(url, { headers: headers(token) });

@@ -4,10 +4,7 @@
   "windowHours": 24,
   "projects": [
     {
-      "vercelProject": "setzen",
-      "vercelProjectId": "prj_6xVAKEVJ3LQUCpSfRzxXFkKjGlsx",
-      "repo": "teamleaderleo/scrapbook",
-      "branch": "main"
+      "repo": "teamleaderleo/scrapbook"
     }
   ]
 }

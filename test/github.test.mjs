@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { listDispatchCandidates, parseCandidateRunName } from "../src/github.mjs";
+import {
+  dispatchCandidate,
+  listDispatchCandidates,
+  parseCandidateRunName,
+} from "../src/github.mjs";
 
 const sha = "0123456789abcdef0123456789abcdef01234567";
 
@@ -44,4 +48,35 @@ test("candidate listing reads only repository-dispatch runs from the governor wo
     runId: 42,
     createdAt: "2026-08-24T01:02:03Z",
   }]);
+});
+
+test("poll candidate dispatch targets only the governor repository", async () => {
+  let requestedUrl;
+  let requestBody;
+  const result = await dispatchCandidate({
+    repository: "teamleaderleo/deploy-governor",
+    repo: "teamleaderleo/scrapbook",
+    branch: "main",
+    sha,
+    token: "secret",
+    fetchImpl: async (url, init) => {
+      requestedUrl = new URL(url);
+      assert.equal(init.method, "POST");
+      assert.equal(init.headers.Authorization, "Bearer secret");
+      requestBody = JSON.parse(init.body);
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  assert.equal(requestedUrl.pathname, "/repos/teamleaderleo/deploy-governor/dispatches");
+  assert.deepEqual(requestBody, {
+    event_type: "vercel-deploy-candidate",
+    client_payload: {
+      repository: "teamleaderleo/scrapbook",
+      branch: "main",
+      sha,
+      delivery_id: `poll:teamleaderleo/scrapbook:main:${sha}`,
+    },
+  });
+  assert.equal(result.sha, sha);
 });
