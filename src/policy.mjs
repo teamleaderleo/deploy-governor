@@ -16,19 +16,12 @@ export function decidePush({ deploymentCount, threshold, alreadyDeployed }) {
   };
 }
 
-export function selectBatchProjects({ staleProjects, deploymentCount, threshold }) {
+export function selectBatchProjects({ staleProjects }) {
   const ordered = [...staleProjects].sort((a, b) => {
     const aTime = a.lastProductionAt ?? 0;
     const bTime = b.lastProductionAt ?? 0;
     return aTime - bTime || a.repo.localeCompare(b.repo);
   });
 
-  if (ordered.length === 0) return [];
-
-  if (deploymentCount >= threshold) {
-    return ordered.slice(0, 1);
-  }
-
-  const immediateCapacity = Math.max(0, threshold - deploymentCount);
-  return ordered.slice(0, immediateCapacity);
+  return ordered.slice(0, 1);
 }
