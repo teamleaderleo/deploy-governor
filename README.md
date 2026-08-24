@@ -6,9 +6,9 @@ The default policy is intentionally simple:
 
 - The first **50 Vercel deployments in a rolling 24-hour window** leave production pushes in immediate mode.
 - At 50 or more, new pushes stop creating production deployments immediately.
-- A single **global batch slot runs every 30 minutes** and deploys at most one stale project while batching is active.
-- Because there are at most 48 half-hour slots in 24 hours, the intended steady-state ceiling is roughly 50 immediate + 48 batched deployments, leaving a little room below Vercel Hobby's 100-deployment rolling limit.
-- If the rolling count drops below 50 while projects are stale, the scheduler can use the newly available immediate capacity to catch them up.
+- A single **global batch slot runs every 30 minutes** and deploys at most one stale project.
+- Because there are at most 48 half-hour slots in 24 hours, the governor's scheduled path can create at most 48 deployments per day. Combined with the 50 immediate threshold, that leaves a little room below Vercel Hobby's 100-deployment rolling limit.
+- When the rolling count falls below 50, fresh pushes become immediate again. Any stale backlog still drains one project per half-hour slot rather than bursting.
 
 There is no database and no counter to synchronize. Vercel's team-wide deployment history is the rolling ledger. A small race around the threshold is accepted on purpose; 50 is a soft batching threshold, not a distributed lock.
 
@@ -80,7 +80,7 @@ For public GitHub repositories, this repository's normal `GITHUB_TOKEN` can read
 
 ## Batch fairness
 
-When batching is active, each half-hour tick picks only one stale project. The project with the oldest last production deployment goes first; a project that has never deployed sorts ahead of the others. This gives multiple active projects a simple round-robin-ish fairness without persistent state.
+Every half-hour tick can spend at most one global deployment slot. It picks the stale project with the oldest last production deployment; a project that has never deployed sorts ahead of the others. That gives multiple active projects a simple round-robin-ish fairness without persistent state.
 
 ## Safety and idempotency
 
