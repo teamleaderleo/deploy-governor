@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: "deploy-candidate-${{ github.event.client_payload.repository }}"
+  group: deploy-governor-global
   cancel-in-progress: false
 
 jobs:
