@@ -1,0 +1,39 @@
+name: Candidate history once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/candidate-history-once.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record exact candidate presence
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          TITLE: candidate|teamleaderleo/scrapbook|main|84b7ddb0dff2d916d711169a8fccf6262af668cf
+        run: |
+          set -euo pipefail
+          row="$(gh api "/repos/$REPOSITORY/actions/workflows/candidate.yml/runs?event=repository_dispatch&per_page=100" \
+            --jq ".workflow_runs[] | select(.display_title == \"$TITLE\") | [.id, .created_at, .conclusion] | @tsv" \
+            | head -n 1)"
+          if [[ -n "$row" ]]; then
+            IFS=$'\t' read -r run_id created_at conclusion <<<"$row"
+            receipt="$(jq -n --argjson found true --arg runId "$run_id" --arg createdAt "$created_at" --arg conclusion "$conclusion" '{found:$found,runId:$runId,createdAt:$createdAt,conclusion:$conclusion}')"
+          else
+            receipt='{"found":false}'
+          fi
+          encoded="$(printf '%s\n' "$receipt" | base64 -w 0)"
+          path='.smoke/candidate-history.json'
+          existing_sha="$(gh api "/repos/$REPOSITORY/contents/$path" --jq '.sha' 2>/dev/null || true)"
+          args=(--method PUT "/repos/$REPOSITORY/contents/$path" -f message='Record candidate history check' -f content="$encoded")
+          if [[ -n "$existing_sha" ]]; then args+=(-f sha="$existing_sha"); fi
+          gh api "${args[@]}" >/dev/null
