@@ -1,0 +1,42 @@
+name: Stensibly workflow state probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/stensibly-actions-probe.yml
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Record workflow runs for the diagnostic and activation revisions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          diagnostic_sha='2672650ff6eea4f86c8abd5c0bd2d86e4f3f3be2'
+          activation_sha='9e095057f20cfd979263b30838a0829b78cbc3c9'
+
+          diagnostic="$(gh api "/repos/teamleaderleo/stensibly/actions/runs?head_sha=$diagnostic_sha&per_page=20")"
+          activation="$(gh api "/repos/teamleaderleo/stensibly/actions/runs?head_sha=$activation_sha&per_page=20")"
+
+          jq -n \
+            --argjson diagnostic "$diagnostic" \
+            --argjson activation "$activation" \
+            '{
+              diagnostic: [$diagnostic.workflow_runs[]? | {id, name, event, status, conclusion, created_at, updated_at}],
+              activation: [$activation.workflow_runs[]? | {id, name, event, status, conclusion, created_at, updated_at}]
+            }' >/tmp/receipt.json
+
+          encoded="$(base64 -w 0 </tmp/receipt.json)"
+          path='.smoke/stensibly-actions.json'
+          existing_sha="$(gh api "/repos/$REPOSITORY/contents/$path" --jq '.sha' 2>/dev/null || true)"
+          args=(--method PUT "/repos/$REPOSITORY/contents/$path" -f message='Record Stensibly workflow state probe' -f content="$encoded")
+          if [[ -n "$existing_sha" ]]; then args+=(-f sha="$existing_sha"); fi
+          gh api "${args[@]}" >/dev/null
