@@ -105,6 +105,7 @@ async function main() {
       await governPoll({
         client,
         githubOwners: config.githubOwners,
+        managedRepositories: config.managedRepositories,
         threshold: numberArg(args.threshold, config.threshold),
         windowHours: numberArg(args.windowHours, config.windowHours),
         dryRun: Boolean(args.dryRun),
@@ -120,6 +121,7 @@ async function main() {
       await governBatch({
         client,
         githubOwners: config.githubOwners,
+        managedRepositories: config.managedRepositories,
         hardCeiling: numberArg(args.hardCeiling, config.hardCeiling),
         windowHours: numberArg(args.windowHours, config.windowHours),
         dryRun: Boolean(args.dryRun),
