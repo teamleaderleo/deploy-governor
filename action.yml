@@ -14,17 +14,17 @@ inputs:
     description: Vercel project ID (prj_...).
     required: true
   repo:
-    description: GitHub repository in owner/name form.
+    description: GitHub repository in owner/name form. Defaults to the calling repository.
     required: false
-    default: ${{ github.repository }}
+    default: ''
   branch:
     description: Git branch deployed to production.
     required: false
     default: main
   sha:
-    description: Exact Git commit to deploy.
+    description: Exact Git commit to deploy. Defaults to the calling workflow SHA.
     required: false
-    default: ${{ github.sha }}
+    default: ''
   threshold:
     description: Number of deployments in the rolling window before batching starts.
     required: false
@@ -54,14 +54,16 @@ runs:
       shell: bash
       env:
         VERCEL_TOKEN: ${{ inputs.vercel-token }}
+        GOVERNOR_REPO: ${{ inputs.repo || github.repository }}
+        GOVERNOR_SHA: ${{ inputs.sha || github.sha }}
       run: >-
         node "$GITHUB_ACTION_PATH/bin/deploy-governor.mjs" push
         --team-slug "${{ inputs.team-slug }}"
         --vercel-project "${{ inputs.vercel-project }}"
         --vercel-project-id "${{ inputs.vercel-project-id }}"
-        --repo "${{ inputs.repo }}"
+        --repo "$GOVERNOR_REPO"
         --branch "${{ inputs.branch }}"
-        --sha "${{ inputs.sha }}"
+        --sha "$GOVERNOR_SHA"
         --threshold "${{ inputs.threshold }}"
         --window-hours "${{ inputs.window-hours }}"
         ${{ inputs.dry-run == 'true' && '--dry-run' || '' }}
