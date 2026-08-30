@@ -11,6 +11,7 @@ function fakeClient(overrides = {}) {
   return {
     hasProductionDeploymentForSha: async () => false,
     countRecentDeployments: async () => 0,
+    listDeployments: async () => [],
     latestProductionDeployment: async () => null,
     createGitHubProductionDeployment: async (project) => ({
       id: `dpl_${project.vercelProject}`,
@@ -43,7 +44,7 @@ function candidate(repo, sha, createdAt, runId = 1) {
 test("push deploys below threshold", async () => {
   let creates = 0;
   const client = fakeClient({
-    countRecentDeployments: async () => 49,
+    listDeployments: async () => Array.from({ length: 49 }, () => ({ created: Date.now() })),
     createGitHubProductionDeployment: async () => {
       creates += 1;
       return { id: "dpl_one" };
@@ -63,13 +64,14 @@ test("push deploys below threshold", async () => {
 test("push does not deploy at threshold", async () => {
   let creates = 0;
   const client = fakeClient({
-    countRecentDeployments: async () => 50,
+    listDeployments: async () => Array.from({ length: 50 }, () => ({ created: Date.now() })),
     createGitHubProductionDeployment: async () => {
       creates += 1;
     },
   });
   const result = await governPush({ client, project: scrapbook, sha: shaA, threshold: 50 });
   assert.equal(result.action, "batch-wait");
+  assert.match(result.nextSlotAt, /^\d{4}-/);
   assert.equal(creates, 0);
 });
 
@@ -161,7 +163,7 @@ test("poll reports an unobservable repo without blocking other projects", async 
 test("batch mode deploys only the least recently deployed stale project", async () => {
   const created = [];
   const client = fakeClient({
-    countRecentDeployments: async () => 50,
+    listDeployments: async () => Array.from({ length: 50 }, () => ({ created: Date.now() })),
     hasProductionDeploymentForSha: async () => false,
     latestProductionDeployment: async ({ project }) => ({
       created: project === "prj_setzen" ? 200 : 100,
@@ -179,6 +181,7 @@ test("batch mode deploys only the least recently deployed stale project", async 
       candidate(other.repo, shaB, "2026-08-24T01:00:00Z", 1),
     ],
     threshold: 50,
+    force: true,
   });
   assert.equal(result.mode, "batch");
   assert.deepEqual(created, ["teamleaderleo/other"]);
@@ -187,7 +190,7 @@ test("batch mode deploys only the least recently deployed stale project", async 
 test("scheduled draining stays to one project below threshold", async () => {
   const created = [];
   const client = fakeClient({
-    countRecentDeployments: async () => 10,
+    listDeployments: async () => [],
     hasProductionDeploymentForSha: async () => false,
     latestProductionDeployment: async ({ project }) => ({
       created: project === "prj_setzen" ? 100 : 200,
@@ -205,6 +208,7 @@ test("scheduled draining stays to one project below threshold", async () => {
       candidate(other.repo, shaB, "2026-08-24T02:00:00Z", 2),
     ],
     threshold: 50,
+    force: true,
   });
   assert.equal(result.mode, "drain");
   assert.deepEqual(created, ["teamleaderleo/scrapbook"]);
@@ -213,7 +217,7 @@ test("scheduled draining stays to one project below threshold", async () => {
 test("batch ignores candidates whose exact SHA already has a production deployment", async () => {
   const created = [];
   const client = fakeClient({
-    countRecentDeployments: async () => 50,
+    listDeployments: async () => [],
     hasProductionDeploymentForSha: async ({ project }) => project === "prj_setzen",
     latestProductionDeployment: async () => ({ created: 100 }),
     createGitHubProductionDeployment: async (project) => {
@@ -228,6 +232,7 @@ test("batch ignores candidates whose exact SHA already has a production deployme
       candidate(scrapbook.repo, shaA, "2026-08-24T01:00:00Z", 1),
       candidate(other.repo, shaB, "2026-08-24T02:00:00Z", 2),
     ],
+    force: true,
   });
   assert.deepEqual(created, ["teamleaderleo/other"]);
 });

@@ -1,4 +1,4 @@
-import { decidePush, selectBatchProjects } from "./policy.mjs";
+import { decidePush, nextBatchSlot, selectBatchProjects } from "./policy.mjs";
 
 export function rollingWindowStart(now, windowHours) {
   return now - windowHours * 60 * 60 * 1000;
@@ -8,7 +8,7 @@ export async function governPush({
   client,
   project,
   sha,
-  threshold = 50,
+  threshold = 75,
   windowHours = 24,
   now = Date.now(),
   dryRun = false,
@@ -18,27 +18,54 @@ export async function governPush({
     sha,
   });
 
-  const deploymentCount = alreadyDeployed
+  const recentDeployments = alreadyDeployed
     ? null
-    : await client.countRecentDeployments({
+    : await client.listDeployments({
         since: rollingWindowStart(now, windowHours),
-        threshold,
+        limit: 100,
       });
+  const deploymentCount = recentDeployments?.length ?? null;
 
   const decision = decidePush({
     deploymentCount: deploymentCount ?? 0,
     threshold,
     alreadyDeployed,
   });
+  const timing = decision.action === "batch-wait"
+    ? nextBatchSlot({ deployments: recentDeployments, threshold, windowHours, now })
+    : null;
+  const timingResult = timing
+    ? {
+        backoffMinutes: timing.backoffMinutes,
+        nextSlotAt: new Date(timing.nextSlotAt).toISOString(),
+        slotEligible: timing.eligible,
+        slotReason: timing.reason,
+      }
+    : {};
 
   if (decision.action !== "deploy-now" || dryRun) {
-    return { ...decision, deploymentCount, dryRun };
+    return {
+      ...decision,
+      repo: project.repo,
+      branch: project.branch,
+      sha,
+      deploymentCount,
+      threshold,
+      windowHours,
+      ...timingResult,
+      dryRun,
+    };
   }
 
   const deployment = await client.createGitHubProductionDeployment({ ...project, sha });
   return {
     ...decision,
+    repo: project.repo,
+    branch: project.branch,
+    sha,
     deploymentCount,
+    threshold,
+    windowHours,
     deploymentId: deployment?.id ?? deployment?.uid ?? null,
     deploymentUrl: deployment?.url ?? null,
     dryRun,
@@ -166,13 +193,21 @@ export async function governBatch({
   client,
   projects,
   candidates,
-  threshold = 50,
+  threshold = 75,
   windowHours = 24,
   now = Date.now(),
   dryRun = false,
+  force = false,
 }) {
   const since = rollingWindowStart(now, windowHours);
-  const deploymentCount = await client.countRecentDeployments({ since, threshold });
+  const recentDeployments = await client.listDeployments({ since, limit: 100 });
+  const timing = nextBatchSlot({
+    deployments: recentDeployments,
+    threshold,
+    windowHours,
+    now,
+  });
+  const deploymentCount = timing.deploymentCount;
   const candidateProjects = latestCandidatesForProjects({ projects, candidates });
 
   const states = [];
@@ -191,7 +226,8 @@ export async function governBatch({
   }
 
   const staleProjects = states.filter((project) => !project.alreadyDeployed);
-  const selected = selectBatchProjects({ staleProjects });
+  const slotEligible = force || timing.eligible;
+  const selected = slotEligible ? selectBatchProjects({ staleProjects }) : [];
   const deployments = [];
 
   for (const project of selected) {
@@ -218,6 +254,14 @@ export async function governBatch({
   return {
     mode: deploymentCount >= threshold ? "batch" : "drain",
     deploymentCount,
+    threshold,
+    windowHours,
+    hardLimit: timing.hardLimit,
+    backoffMinutes: timing.backoffMinutes,
+    nextSlotAt: new Date(timing.nextSlotAt).toISOString(),
+    slotEligible,
+    slotReason: force ? "manual force override" : timing.reason,
+    forced: force,
     staleProjects: staleProjects.map(({
       repo,
       vercelProject,

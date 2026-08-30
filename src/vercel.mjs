@@ -65,8 +65,8 @@ export class VercelClient {
     return payload?.deployments ?? [];
   }
 
-  async countRecentDeployments({ since, threshold }) {
-    const deployments = await this.listDeployments({ since, limit: threshold });
+  async countRecentDeployments({ since, limit, threshold }) {
+    const deployments = await this.listDeployments({ since, limit: limit ?? threshold ?? 100 });
     return deployments.length;
   }
 
