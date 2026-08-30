@@ -28,7 +28,7 @@ inputs:
   threshold:
     description: Number of deployments in the rolling window before batching starts.
     required: false
-    default: '50'
+    default: '75'
   window-hours:
     description: Rolling window length in hours.
     required: false

@@ -8,6 +8,7 @@ import {
 } from "../src/github.mjs";
 import { governBatch, governPush, pollProjects } from "../src/governor.mjs";
 import { resolveProjects } from "../src/projects.mjs";
+import { markdownSummary, noticeForResult } from "../src/summary.mjs";
 import { VercelClient } from "../src/vercel.mjs";
 
 function parseArgs(argv) {
@@ -15,8 +16,8 @@ function parseArgs(argv) {
   const args = { command };
   for (let i = 0; i < rest.length; i += 1) {
     const item = rest[i];
-    if (item === "--dry-run") {
-      args.dryRun = true;
+    if (item === "--dry-run" || item === "--force") {
+      args[item.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = true;
       continue;
     }
     if (!item.startsWith("--")) throw new Error(`Unexpected argument: ${item}`);
@@ -38,6 +39,10 @@ function numberArg(value, fallback) {
 
 async function print(result) {
   console.log(JSON.stringify(result, null, 2));
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, markdownSummary(result));
+    console.log(`::notice title=Deploy governor::${noticeForResult(result)}`);
+  }
   if (!process.env.GITHUB_OUTPUT) return;
   const outputs = {
     action: result.action ?? result.mode ?? "",
@@ -78,7 +83,7 @@ async function main() {
         client,
         project,
         sha,
-        threshold: numberArg(args.threshold, 50),
+        threshold: numberArg(args.threshold, 75),
         windowHours: numberArg(args.windowHours, 24),
         dryRun: Boolean(args.dryRun),
       }),
@@ -146,6 +151,7 @@ async function main() {
         threshold: numberArg(args.threshold, config.threshold),
         windowHours: numberArg(args.windowHours, config.windowHours),
         dryRun: Boolean(args.dryRun),
+        force: Boolean(args.force),
       }),
     );
     return;

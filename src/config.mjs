@@ -6,7 +6,7 @@ export async function loadConfig(path) {
   const raw = JSON.parse(await readFile(path, "utf8"));
   validateConfig(raw);
   return {
-    threshold: 50,
+    threshold: 75,
     windowHours: 24,
     ...raw,
     projects: raw.projects.map((project) => ({ ...project })),

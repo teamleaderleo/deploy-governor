@@ -4,13 +4,13 @@ A tiny, stateless governor for Vercel production deployments across multiple Git
 
 The default policy is intentionally simple:
 
-- The first **50 Vercel deployments in a rolling 24-hour window** leave production candidates in immediate mode.
-- At 50 or more, new routine production candidates wait.
-- A single **global batch slot runs every 30 minutes** and deploys at most one stale project.
-- The scheduled batch path can therefore create at most 48 deployments per day. Combined with the 50 immediate threshold, this leaves a little room below Vercel Hobby's 100-deployment rolling limit.
-- When the rolling count falls below 50, fresh candidates become immediate again. Existing backlog still drains one project per half-hour instead of bursting.
+- The first **75 Vercel deployments in a rolling 24-hour window** leave production candidates in immediate mode.
+- At 75 or more, new routine production candidates wait.
+- A short-lived global evaluator runs every five minutes and deploys at most one stale project when the next pressure-controlled slot is open.
+- Slot spacing grows with the rolling count: 5, 10, 15, 30, 60, 120, then 240 minutes. At 99 deployments, the scheduler waits for enough history to leave the 24-hour window before it can create another.
+- When the rolling count falls below 75, fresh candidates become immediate again. Existing backlog still drains through global slots instead of bursting.
 
-There is no database and no mutable counter. Vercel's team-wide deployment history is the quota ledger, and deploy-governor's own `repository_dispatch` workflow history is the candidate queue. A small race around 50 is accepted on purpose; 50 is a soft batching threshold, not a distributed lock.
+There is no database, resident process, or mutable counter. Vercel's team-wide deployment history is the quota ledger, and deploy-governor's own `repository_dispatch` workflow history is the candidate queue. A small race around 75 is accepted on purpose; 75 is a soft batching threshold, not a distributed lock. The scheduler keeps one slot below Vercel Hobby's 100-deployment rolling limit as an additional race reserve.
 
 ## Normal flow
 
@@ -23,9 +23,10 @@ GitHub main changes
   -> Stensibly verifies the signed GitHub webhook
   -> Stensibly sends repository_dispatch to deploy-governor
   -> candidate workflow evaluates the exact repo / branch / SHA
-  -> below 50: exact-SHA Vercel production deployment now
-  -> at 50+: no Vercel deployment yet; the workflow run remains queue evidence
-  -> every 30 minutes: deploy the newest pending SHA for one stale project
+  -> below 75: exact-SHA Vercel production deployment now
+  -> at 75+: no Vercel deployment yet; the workflow run remains queue evidence
+  -> every 5 minutes: recompute the next global slot from actual Vercel history
+  -> when eligible: deploy the newest pending SHA for one stale project
 ```
 
 When a GitHub App installation also supplies raw `push` webhooks, Stensibly may send the same candidate earlier. Exact-SHA readback makes duplicate observations harmless.
@@ -37,7 +38,7 @@ Participating repositories do **not** need a Vercel token or a deploy-governor w
 ## Pieces
 
 - `.github/workflows/candidate.yml` receives central `repository_dispatch` candidates and performs the immediate decision.
-- `.github/workflows/batch.yml` owns the one global half-hour backlog slot.
+- `.github/workflows/batch.yml` owns the one global pressure-controlled backlog slot.
 - `projects.json` is only the enrollment list. Vercel supplies project IDs and production branch names from its existing Git integration.
 - `src/policy.mjs` contains the pure threshold and fairness policy.
 - `src/vercel.mjs` talks to Vercel and discovers linked project metadata.
@@ -97,13 +98,19 @@ This means:
 - an ambiguous immediate attempt is safe to revisit because Vercel readback happens before another deployment is created;
 - a failed or canceled Vercel deployment for an exact SHA counts as already attempted, preserving the no-infinite-retry rule.
 
-## Batch fairness
+## Batch timing and fairness
 
-Every half-hour tick can spend at most one global deployment slot. It picks the stale project with the oldest last production deployment; a project that has never deployed sorts ahead of the others.
+Every five-minute tick is a short-lived evaluation. It computes the next slot from the latest team-wide deployment and the current rolling count. Backoff starts at five minutes and increases as the count approaches 99. At the reserve, the next slot is the later of the pressure backoff or the time enough old deployments leave the 24-hour window.
+
+An eligible tick can spend at most one global deployment slot. It picks the stale project with the oldest last production deployment; a project that has never deployed sorts ahead of the others. A manual workflow dispatch may set `force=true` to bypass timing deliberately, while exact-SHA readback and one-project selection still apply.
+
+## Visibility
+
+Candidate and batch runs publish a GitHub Actions job summary and notice with the observed count, immediate threshold, decision, queued commits, selected project, deployment link, and the computed next slot. The JSON log remains available for automation and exact audit details.
 
 ## Quota accounting
 
-The rolling count includes preview and production deployments across the Vercel team, including projects outside `projects.json`. Preview deployments are not batched by deploy-governor; the threshold reserve is deliberate headroom for previews, manual deploys, and the accepted race around 50.
+The rolling count includes preview and production deployments across the Vercel team, including projects outside `projects.json`. Preview deployments are not batched by deploy-governor; the gap between the 75 immediate threshold and the 99 hard reserve is deliberate headroom for previews, manual deploys, and the accepted race around the soft threshold.
 
 ## Local verification
 

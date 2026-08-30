@@ -16,6 +16,52 @@ export function decidePush({ deploymentCount, threshold, alreadyDeployed }) {
   };
 }
 
+export function batchBackoffMinutes({ deploymentCount, threshold }) {
+  const pressure = Math.max(0, deploymentCount - threshold);
+  if (pressure < 5) return 5;
+  if (pressure < 10) return 10;
+  if (pressure < 15) return 15;
+  if (pressure < 20) return 30;
+  if (pressure < 22) return 60;
+  if (pressure < 23) return 120;
+  return 240;
+}
+
+export function nextBatchSlot({
+  deployments,
+  threshold,
+  windowHours = 24,
+  hardLimit = 99,
+  now = Date.now(),
+}) {
+  const windowMs = windowHours * 60 * 60 * 1000;
+  const createdTimes = deployments
+    .map((deployment) => Number(deployment?.created ?? deployment?.createdAt))
+    .filter((createdAt) => Number.isFinite(createdAt) && createdAt >= now - windowMs)
+    .sort((left, right) => left - right);
+  const deploymentCount = createdTimes.length;
+  const backoffMinutes = batchBackoffMinutes({ deploymentCount, threshold });
+  const latestAt = createdTimes.at(-1) ?? null;
+  let nextSlotAt = latestAt === null ? now : latestAt + backoffMinutes * 60 * 1000;
+  let reason = `${backoffMinutes}-minute pressure backoff`;
+
+  if (deploymentCount >= hardLimit) {
+    const expirationsNeeded = deploymentCount - hardLimit + 1;
+    const capacityAt = createdTimes[expirationsNeeded - 1] + windowMs;
+    nextSlotAt = Math.max(nextSlotAt, capacityAt);
+    reason = `rolling limit reserve; ${expirationsNeeded} deployment${expirationsNeeded === 1 ? "" : "s"} must expire`;
+  }
+
+  return {
+    deploymentCount,
+    backoffMinutes,
+    nextSlotAt,
+    eligible: now >= nextSlotAt,
+    reason,
+    hardLimit,
+  };
+}
+
 export function selectBatchProjects({ staleProjects }) {
   const ordered = [...staleProjects].sort((a, b) => {
     const aTime = a.lastProductionAt ?? 0;
