@@ -187,6 +187,29 @@ test("batch mode deploys only the least recently deployed stale project", async 
   assert.deepEqual(created, ["teamleaderleo/other"]);
 });
 
+test("batch reports the next slot without deploying early", async () => {
+  const now = Date.parse("2026-08-31T12:00:00Z");
+  let creates = 0;
+  const result = await governBatch({
+    client: fakeClient({
+      listDeployments: async () => Array.from({ length: 75 }, () => ({ created: now - 60_000 })),
+      createGitHubProductionDeployment: async () => {
+        creates += 1;
+        return { id: "should_not_happen" };
+      },
+    }),
+    projects: [scrapbook],
+    candidates: [candidate(scrapbook.repo, shaA, "2026-08-31T11:59:00Z")],
+    threshold: 75,
+    now,
+  });
+
+  assert.equal(result.slotEligible, false);
+  assert.equal(result.nextSlotAt, "2026-08-31T12:04:00.000Z");
+  assert.equal(result.selected.length, 0);
+  assert.equal(creates, 0);
+});
+
 test("scheduled draining stays to one project below threshold", async () => {
   const created = [];
   const client = fakeClient({
